@@ -52,7 +52,7 @@ class MedData_train(torch.utils.data.Dataset):
 
         self.subjects = []
 
-        if (hp.in_class == 1) and (hp.out_class == 1) :
+        if (hp.in_class == 3) and (hp.out_class == 1) :
 
             images_dir = Path(images_dir)
             self.image_paths = sorted(images_dir.glob(hp.fold_arch))
@@ -163,7 +163,7 @@ class MedData_test(torch.utils.data.Dataset):
 
         self.subjects = []
 
-        if (hp.in_class == 1) and (hp.out_class == 1) :
+        if (hp.in_class == 3) and (hp.out_class == 1) :
 
             images_dir = Path(images_dir)
             self.image_paths = sorted(images_dir.glob(hp.fold_arch))

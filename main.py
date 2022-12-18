@@ -189,27 +189,28 @@ def train():
     iteration = elapsed_epochs * len(train_loader)
 
 
-
-    for epoch in range(1, epochs + 1):
-        print("epoch:"+str(epoch))
+    epoch_bar = tqdm(range(1, epochs + 1))
+    for epoch in epoch_bar:
+        epoch_bar.set_description(f"Epoch {epoch}/{epochs}")
         epoch += elapsed_epochs
 
         num_iters = 0
 
 
-        for i, batch in enumerate(train_loader):
+        batch_bar = tqdm(enumerate(train_loader))
+        for i, batch in batch_bar:
             
 
             if hp.debug:
                 if i >=1:
                     break
 
-            print(f"Batch: {i}/{len(train_loader)} epoch {epoch}")
+            # print(f"Batch: {i}/{len(train_loader)} epoch {epoch}")
 
             optimizer.zero_grad()
 
 
-            if (hp.in_class == 1) and (hp.out_class == 1) :
+            if (hp.in_class == 3) and (hp.out_class == 1) :
                 x = batch['source']['data']
                 y = batch['label']['data']
 
@@ -241,15 +242,16 @@ def train():
                 y = y.type(torch.FloatTensor).cuda()
 
 
-            if hp.mode == '2d':
-                x = x.squeeze(4)
-                y = y.squeeze(4)
+            # if hp.mode == '2d':
+            #     x = x.squeeze(4)
+            #     y = y.squeeze(4)
 
             y[y!=0] = 1
                 
                 #print(y.max())
                 
-            outputs = model(x)
+            outputs = model(x.squeeze(4))
+            outputs = outputs.unsqueeze(4)
 
 
             # for metrics
@@ -293,8 +295,9 @@ def train():
             
 
 
-            print("loss:"+str(loss.item()))
-            print('lr:'+str(scheduler._last_lr[0]))
+            # print("loss:"+str(loss.item()))
+            # print('lr:'+str(scheduler._last_lr[0]))
+            batch_bar.set_description(f"Batch: {i}/{len(train_loader)} loss: {loss.item():.4f} lr: {scheduler._last_lr[0]:.6f}")
 
             
 
@@ -333,10 +336,10 @@ def train():
 
             
             with torch.no_grad():
-                if hp.mode == '2d':
-                    x = x.unsqueeze(4)
-                    y = y.unsqueeze(4)
-                    outputs = outputs.unsqueeze(4)
+                # if hp.mode == '2d':
+                #     x = x.unsqueeze(4)
+                #     y = y.unsqueeze(4)
+                #     outputs = outputs.unsqueeze(4)
                     
                 x = x[0].cpu().detach().numpy()
                 y = y[0].cpu().detach().numpy()
@@ -346,8 +349,7 @@ def train():
 
 
 
-
-                if (hp.in_class == 1) and (hp.out_class == 1) :
+                if (hp.in_class == 3) and (hp.out_class == 1) :
                     y = np.expand_dims(y, axis=1)
                     outputs = np.expand_dims(outputs, axis=1)
                     model_output_one_hot = np.expand_dims(model_output_one_hot, axis=1)
@@ -486,7 +488,8 @@ def test():
         patch_size = hp.patch_size
 
 
-    for i,subj in enumerate(test_dataset.subjects):
+    pbar = tqdm(enumerate(test_dataset.subjects))
+    for i,subj in pbar:
         subj = znorm(subj)
         grid_sampler = torchio.inference.GridSampler(
                 subj,
@@ -499,7 +502,7 @@ def test():
         aggregator_1 = torchio.inference.GridAggregator(grid_sampler)
         model.eval()
         with torch.no_grad():
-            for patches_batch in tqdm(patch_loader):
+            for patches_batch in patch_loader:
 
 
                 input_tensor = patches_batch['source'][torchio.DATA].to(device)
@@ -529,7 +532,7 @@ def test():
 
 
         affine = subj['source']['affine']
-        if (hp.in_class == 1) and (hp.out_class == 1) :
+        if (hp.in_class == 3) and (hp.out_class == 1) :
             # label_image = torchio.ScalarImage(tensor=output_tensor.numpy(), affine=affine)
             # label_image.save(os.path.join(output_dir_test,f"{i:04d}-result_float"+hp.save_arch))
 
@@ -566,6 +569,8 @@ def test():
 
             output_image_vein_int = torchio.ScalarImage(tensor=output_tensor_1[3].numpy(), affine=affine)
             output_image_vein_int.save(os.path.join(output_dir_test,f"{i:04d}-result_int_vein"+hp.save_arch))           
+        
+        pbar.set_description(f"Test {i:04d}/ {len(test_dataset.subjects)}")
 
 
    
