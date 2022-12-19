@@ -15,7 +15,7 @@ import torch.distributed as dist
 import math
 import torchio
 from torchio.transforms import (
-    ZNormalization,
+    ZNormalization, CropOrPad
 )
 from tqdm import tqdm
 from torchvision import utils
@@ -36,6 +36,18 @@ label_test_dir = hp.label_test_dir
 output_dir_test = hp.output_dir_test
 
 
+def seed_everything(seed: int):
+    import random, os
+    import numpy as np
+    import torch
+    
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = True
 
 def parse_training_args(parser):
     """
@@ -90,27 +102,31 @@ def train():
     os.makedirs(args.output_dir, exist_ok=True)
 
     if hp.mode == '2d':
-        #from models.two_d.unet import Unet
-        #model = Unet(in_channels=hp.in_class, classes=hp.out_class+1)
-
-        from models.two_d.miniseg import MiniSeg
-        model = MiniSeg(in_input=hp.in_class, classes=hp.out_class+1)
-
-        #from models.two_d.fcn import FCN32s as fcn
-        #model = fcn(in_class =hp.in_class,n_class=hp.out_class+1)
-
-        # from models.two_d.segnet import SegNet
-        # model = SegNet(input_nbr=hp.in_class,label_nbr=hp.out_class+1)
-
-        #from models.two_d.deeplab import DeepLabV3
-        #model = DeepLabV3(in_class=hp.in_class,class_num=hp.out_class+1)
-
-        #from models.two_d.unetpp import ResNet34UnetPlus
-        #model = ResNet34UnetPlus(num_channels=hp.in_class,num_class=hp.out_class+1)
-
-        #from models.two_d.pspnet import PSPNet
-        #model = PSPNet(in_class=hp.in_class,n_classes=hp.out_class+1)
-
+        
+        if hp.model == 'unet':
+            from models.two_d.unet import Unet
+            model = Unet(in_channels=hp.in_class, classes=hp.out_class+1)
+        elif hp.model == 'miniseg':
+            from models.two_d.miniseg import MiniSeg
+            model = MiniSeg(in_input=hp.in_class, classes=hp.out_class+1)
+        elif hp.model == 'fcn':
+            from models.two_d.fcn import FCN32s as fcn
+            model = fcn(in_class =hp.in_class,n_class=hp.out_class+1)
+        elif hp.model == 'segnet':
+            from models.two_d.segnet import SegNet
+            model = SegNet(input_nbr=hp.in_class,label_nbr=hp.out_class+1)
+        elif hp.model == 'deeplabv3':
+            from models.two_d.deeplab import DeepLabV3
+            model = DeepLabV3(in_class=hp.in_class,class_num=hp.out_class+1)
+        elif hp.model == 'restnet34unetplus':
+            from models.two_d.unetpp import ResNet34UnetPlus
+            model = ResNet34UnetPlus(num_channels=hp.in_class,num_class=hp.out_class+1)
+        elif hp.model == 'pspnet':
+            from models.two_d.pspnet import PSPNet
+            model = PSPNet(in_class=hp.in_class,n_classes=hp.out_class+1)
+        else:
+            assert False, 'model not found'
+        
     elif hp.mode == '3d':
         #from models.three_d.unet3d import UNet3D
         #model = UNet3D(in_channels=hp.in_class, out_channels=hp.out_class+1, init_features=32)
@@ -148,8 +164,7 @@ def train():
 
     if args.ckpt is not None:
         print("load model:", args.ckpt)
-        print(os.path.join(args.output_dir, args.latest_checkpoint_file))
-        ckpt = torch.load(os.path.join(args.output_dir, args.latest_checkpoint_file), map_location=lambda storage, loc: storage)
+        ckpt = torch.load(args.ckpt, map_location=lambda storage, loc: storage)
 
         model.load_state_dict(ckpt["model"])
         optimizer.load_state_dict(ckpt["optim"])
@@ -182,6 +197,7 @@ def train():
                             shuffle=True,
                             pin_memory=True,
                             drop_last=True)
+    
 
     model.train()
 
@@ -191,11 +207,11 @@ def train():
 
     epoch_bar = tqdm(range(1, epochs + 1))
     for epoch in epoch_bar:
-        epoch_bar.set_description(f"Epoch {epoch}/{epochs}")
+        epoch_bar.set_description(f"Epoch {epoch}/{epochs} lr {optimizer.param_groups[0]['lr']:.6f}")
         epoch += elapsed_epochs
 
         num_iters = 0
-
+        total_dice = 0
 
         batch_bar = tqdm(enumerate(train_loader))
         for i, batch in batch_bar:
@@ -280,9 +296,9 @@ def train():
 
             y_argmax = y.argmax(dim=1)
             y_one_hot = torch.nn.functional.one_hot(y_argmax, num_classes=hp.out_class+1).permute(0,4,1,2,3)
- 
-            false_positive_rate,false_negtive_rate,dice = metric(y_one_hot[:,1:,:,:].cpu(),model_output_one_hot[:,1:,:,:].cpu())
-    
+            
+            false_positive_rate,false_negtive_rate,dice, jaccard, precision, recall, tp, fp, fn, tn= metric(y_one_hot[:,1:,:,:].cpu(),model_output_one_hot[:,1:,:,:].cpu())
+            total_dice = total_dice + dice
 
 
 
@@ -297,7 +313,7 @@ def train():
 
             # print("loss:"+str(loss.item()))
             # print('lr:'+str(scheduler._last_lr[0]))
-            batch_bar.set_description(f"Batch: {i}/{len(train_loader)} loss: {loss.item():.4f} lr: {scheduler._last_lr[0]:.6f}")
+            batch_bar.set_description(f"Batch: {i}/{len(train_loader)} loss: {loss.item():.4f} dice: {total_dice / (i+1):.4f}")
 
             
 
@@ -311,7 +327,6 @@ def train():
                 "optim": optimizer.state_dict(),
                 "scheduler":scheduler.state_dict(),
                 "epoch": epoch,
-
             },
             os.path.join(args.output_dir, args.latest_checkpoint_file),
         )
@@ -416,26 +431,30 @@ def test():
     os.makedirs(output_dir_test, exist_ok=True)
 
     if hp.mode == '2d':
-        #from models.two_d.unet import Unet
-        #model = Unet(in_channels=hp.in_class, classes=hp.out_class+1)
-
-        from models.two_d.miniseg import MiniSeg
-        model = MiniSeg(in_input=hp.in_class, classes=hp.out_class+1)
-
-        #from models.two_d.fcn import FCN32s as fcn
-        #model = fcn(in_class =hp.in_class,n_class=hp.out_class+1)
-
-        # from models.two_d.segnet import SegNet
-        # model = SegNet(input_nbr=hp.in_class,label_nbr=hp.out_class+1)
-
-        #from models.two_d.deeplab import DeepLabV3
-        #model = DeepLabV3(in_class=hp.in_class,class_num=hp.out_class+1)
-
-        #from models.two_d.unetpp import ResNet34UnetPlus
-        #model = ResNet34UnetPlus(num_channels=hp.in_class,num_class=hp.out_class+1)
-
-        #from models.two_d.pspnet import PSPNet
-        #model = PSPNet(in_class=hp.in_class,n_classes=hp.out_class+1)
+        
+        if hp.model == 'unet':
+            from models.two_d.unet import Unet
+            model = Unet(in_channels=hp.in_class, classes=hp.out_class+1)
+        elif hp.model == 'miniseg':
+            from models.two_d.miniseg import MiniSeg
+            model = MiniSeg(in_input=hp.in_class, classes=hp.out_class+1)
+        elif hp.model == 'fcn':
+            from models.two_d.fcn import FCN32s as fcn
+            model = fcn(in_class =hp.in_class,n_class=hp.out_class+1)
+        elif hp.model == 'segnet':
+            from models.two_d.segnet import SegNet
+            model = SegNet(input_nbr=hp.in_class,label_nbr=hp.out_class+1)
+        elif hp.model == 'deeplabv3':
+            from models.two_d.deeplab import DeepLabV3
+            model = DeepLabV3(in_class=hp.in_class,class_num=hp.out_class+1)
+        elif hp.model == 'restnet34unetplus':
+            from models.two_d.unetpp import ResNet34UnetPlus
+            model = ResNet34UnetPlus(num_channels=hp.in_class,num_class=hp.out_class+1)
+        elif hp.model == 'pspnet':
+            from models.two_d.pspnet import PSPNet
+            model = PSPNet(in_class=hp.in_class,n_classes=hp.out_class+1)
+        else:
+            assert False, 'model not found'
 
     elif hp.mode == '3d':
         #from models.three_d.unet3d import UNet3D
@@ -466,9 +485,12 @@ def test():
     model = torch.nn.DataParallel(model, device_ids=devicess)
 
 
-    print("load model:", args.ckpt)
-    print(os.path.join(args.output_dir, args.latest_checkpoint_file))
-    ckpt = torch.load(os.path.join(args.output_dir, args.latest_checkpoint_file), map_location=lambda storage, loc: storage)
+    if args.ckpt is not None:
+        ckpt_path = args.ckpt
+    else:
+        ckpt_path = os.path.join(args.output_dir, args.latest_checkpoint_file)
+    print("load model:", ckpt_path)
+    ckpt = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
 
     model.load_state_dict(ckpt["model"])
 
@@ -478,8 +500,9 @@ def test():
 
 
     test_dataset = MedData_test(source_test_dir,label_test_dir)
-    znorm = ZNormalization()
-
+    tran = transforms.Compose([
+        ZNormalization(),
+    ]) 
     if hp.mode == '3d':
         patch_overlap = hp.patch_overlap
         patch_size = hp.patch_size
@@ -487,10 +510,11 @@ def test():
         patch_overlap = hp.patch_overlap
         patch_size = hp.patch_size
 
-
+    total_tp, total_fp, total_fn, total_tn = 0, 0, 0,0
+    elapsed_time = 0
     pbar = tqdm(enumerate(test_dataset.subjects))
     for i,subj in pbar:
-        subj = znorm(subj)
+        subj = tran(subj)
         grid_sampler = torchio.inference.GridSampler(
                 subj,
                 patch_size,
@@ -501,13 +525,14 @@ def test():
         # aggregator = torchio.inference.GridAggregator(grid_sampler)
         aggregator_1 = torchio.inference.GridAggregator(grid_sampler)
         model.eval()
+        tt = time.time()
         with torch.no_grad():
             for patches_batch in patch_loader:
 
 
                 input_tensor = patches_batch['source'][torchio.DATA].to(device)
                 locations = patches_batch[torchio.LOCATION]
-
+                
                 if hp.mode == '2d':
                     input_tensor = input_tensor.squeeze(4)
                 outputs = model(input_tensor)
@@ -519,17 +544,23 @@ def test():
                 # model_output_one_hot = torch.nn.functional.one_hot(labels, num_classes=hp.out_class+1).permute(0,4,1,2,3)
                 # logits = torch.sigmoid(outputs)
 
+
                 # labels = logits.clone()
                 # labels[labels>0.5] = 1
                 # labels[labels<=0.5] = 0
 
-                # aggregator.add_batch(model_output_one_hot, locations)
+                # aggregator.add_batch(model_output_one_hot[:,1:, :, :], locations)
                 aggregator_1.add_batch(labels.unsqueeze(1), locations)
         # output_tensor = aggregator.get_output_tensor()
         output_tensor_1 = aggregator_1.get_output_tensor()
-
-
-
+        elapsed_time += time.time() - tt
+        
+        gt = subj['label']['data']
+        false_positive_rate,false_negtive_rate,dice, jaccard, precision, recall, tp, fp, fn, tn= metric(gt.cpu(),output_tensor_1.cpu())
+        total_tp += tp
+        total_fp += fp
+        total_fn += fn
+        total_tn += tn 
 
         affine = subj['source']['affine']
         if (hp.in_class == 3) and (hp.out_class == 1) :
@@ -572,10 +603,16 @@ def test():
         
         pbar.set_description(f"Test {i:04d}/ {len(test_dataset.subjects)}")
 
-
-   
+    dice = 2 * total_tp / (2 * total_tp + total_fp + total_fn + 1e-8)
+    print(f"Test dice: {dice:.4f} Test elapsed time: {elapsed_time:.2f}")
+    print('total_tp',total_tp)
+    print('total_fp',total_fp)
+    print('total_fn',total_fn)
+    print('total_tn',total_tn)
+    print('elapsed_time',elapsed_time)
 
 if __name__ == '__main__':
+    seed_everything(hp.random_seed)
     if hp.train_or_test == 'train':
         train()
     elif hp.train_or_test == 'test':

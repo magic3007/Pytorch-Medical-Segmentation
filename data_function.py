@@ -39,17 +39,6 @@ from hparam import hparams as hp
 class MedData_train(torch.utils.data.Dataset):
     def __init__(self, images_dir, labels_dir):
 
-        if hp.mode == '3d':
-            patch_size = hp.patch_size
-        elif hp.mode == '2d':
-            patch_size = hp.patch_size
-        else:
-            raise Exception('no such kind of mode!')
-
-        queue_length = 5
-        samples_per_volume = 5
-
-
         self.subjects = []
 
         if (hp.in_class == 3) and (hp.out_class == 1) :
@@ -96,16 +85,16 @@ class MedData_train(torch.utils.data.Dataset):
         self.transforms = self.transform()
 
         self.training_set = tio.SubjectsDataset(self.subjects, transform=self.transforms)
-
+        
+        self.sampler = tio.data.UniformSampler(hp.patch_size)
 
         self.queue_dataset = Queue(
             self.training_set,
-            queue_length,
-            samples_per_volume,
-            UniformSampler(patch_size),
+            max_length=hp.queue_length,
+            num_workers=hp.num_workers,
+            sampler=self.sampler,
+            samples_per_volume=hp.samples_per_volume,
         )
-
-
 
 
     def transform(self):
@@ -144,7 +133,7 @@ class MedData_train(torch.utils.data.Dataset):
                 }),])
             else:
                 training_transform = Compose([
-                CropOrPad((hp.crop_or_pad_size), padding_mode='reflect'),
+                # CropOrPad((hp.crop_or_pad_size), padding_mode='reflect'),
                 ZNormalization(),
                 ])
 

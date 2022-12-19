@@ -4,11 +4,10 @@ import torch
 import numpy as np
 import copy
 
-def metric(gt,pred):
+
+def metric(gt, pred):
     preds = pred.detach().numpy()
     gts = gt.detach().numpy()
-
-
 
     pred = preds.astype(int)  # float data does not support bit_and and bit_or
     gdth = gts.astype(int)  # float data does not support bit_and and bit_or
@@ -31,7 +30,12 @@ def metric(gt,pred):
 
     tn_array = np.ones(gdth.shape) - union
 
-    tp, fp, fn, tn = np.sum(tp_array), np.sum(fp_array), np.sum(fn_array), np.sum(tn_array)
+    tp, fp, fn, tn = (
+        np.sum(tp_array),
+        np.sum(fp_array),
+        np.sum(fn_array),
+        np.sum(tn_array),
+    )
 
     smooth = 0.001
     precision = tp / (pred_sum + smooth)
@@ -43,4 +47,15 @@ def metric(gt,pred):
     jaccard = intersection_sum / (union_sum + smooth)
     dice = 2 * intersection_sum / (gdth_sum + pred_sum + smooth)
 
-    return false_positive_rate,false_negtive_rate,dice
+    return (
+        false_positive_rate,
+        false_negtive_rate,
+        dice,
+        jaccard,
+        precision,
+        recall,
+        tp,
+        fp,
+        fn,
+        tn,
+    )
