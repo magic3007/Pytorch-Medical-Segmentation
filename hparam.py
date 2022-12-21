@@ -1,11 +1,11 @@
 class hparams:
 
     train_or_test = "train"
-    model = "unet"
+    model = "fcn"
     output_dir = f"logs/{model}"
-    aug = None
+    aug = False
     latest_checkpoint_file = "checkpoint_latest.pt"
-    total_epochs = 5
+    total_epochs = 100
     epochs_per_checkpoint = 10
     batch_size = 16
     ckpt = None
@@ -36,4 +36,4 @@ class hparams:
     source_test_dir = "thyroid_dataset/val/inputs"
     label_test_dir = "thyroid_dataset/val/gt"
 
-    output_dir_test = "results/miniseg"
+    output_dir_test = f"results/{model}"

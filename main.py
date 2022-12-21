@@ -15,7 +15,7 @@ import torch.distributed as dist
 import math
 import torchio
 from torchio.transforms import (
-    ZNormalization, CropOrPad
+    ZNormalization 
 )
 from tqdm import tqdm
 from torchvision import utils
