@@ -141,9 +141,9 @@ def train(config):
     criterion_dice = DiceLoss(2).to(config.device)
     criterion_ce = CrossEntropyLoss().to(config.device)
 
-    writer = SummaryWriter(osp.join(config.tensorboard_dir, config.experiment_name), comment=config.comment)
-    for k, v in sorted(config.preset_config.items()):
-        writer.add_text(k, str(v))
+    writer = SummaryWriter(comment=config.model)
+    for k in sorted(config.preset_config.keys()):
+        writer.add_text(k, str(config[k]))
     
     train_dataset = MedData_train(
         config, config.source_train_dir, config.label_train_dir
@@ -386,7 +386,7 @@ def test(config):
     model.load_state_dict(ckpt["model"])
     model.to(config.device)
 
-    test_dataset = MedData_test(config.source_test_dir, config.label_test_dir)
+    test_dataset = MedData_test(config, config.source_test_dir, config.label_test_dir)
     tran = transforms.Compose(
         [
             ZNormalization(),
@@ -404,7 +404,7 @@ def test(config):
         )
 
         patch_loader = torch.utils.data.DataLoader(
-            grid_sampler, batch_size=config.batch
+            grid_sampler, batch_size=config.batch_size
         )
         aggregator = torchio.inference.GridAggregator(grid_sampler)
         model.eval()
@@ -476,6 +476,8 @@ def main(config):
 
 if __name__ == "__main__":
     config = Config(preset_config=preset_config)
-    main(config)
-
-# %%
+    model = config.model
+    config.output_dir = osp.join(config.output_dir, model)
+    config.output_dir_test = osp.join(config.output_dir_test, model)
+    config.output_dir_seg = osp.join(config.output_dir_seg, model)
+    main(config) 
